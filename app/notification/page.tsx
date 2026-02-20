@@ -1,91 +1,60 @@
 "use client"
 
 import { useState } from "react"
-import { getToken, onMessage } from "firebase/messaging"
-import { getFirebaseMessaging } from "@/lib/firebase-client"
 
 export default function NotificationComponent() {
-  const [token, setToken] = useState<string | null>(null)
   const [permission, setPermission] = useState<NotificationPermission | null>(null)
+  const [subscription, setSubscription] = useState<PushSubscription | null>(null)
 
-  const askPermissionAndGetToken = async () => {
-    try {
-      const messaging = await getFirebaseMessaging()
-      if (!messaging) return alert("Messaging non supporté")
+  const askPermission = async () => {
+    const result = await Notification.requestPermission();
+    setPermission(result);
+    if (result !== "granted") return alert("Notifications refusées");
 
-      // 1️⃣ Demande permission
-      const result = await Notification.requestPermission()
-      setPermission(result)
-      if (result !== "granted") return alert("Notifications refusées")
+    const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
 
-      // 2️⃣ Enregistre SW si pas fait
-      let registration = await navigator.serviceWorker.getRegistration("/")
-      if (!registration) {
-        registration = await navigator.serviceWorker.register(
-          "/firebase-messaging-sw.js",
-          { scope: "/" }
-        )
-      }
-
-      await navigator.serviceWorker.ready
-
-      // 3️⃣ Récupère token FCM
-      const firebaseToken = await getToken(messaging, {
-        vapidKey: process.env.NEXT_PUBLIC_VAPID_KEY,
-        serviceWorkerRegistration: registration,
-      })
-
-      if (!firebaseToken) return alert("Impossible de récupérer le token")
-      setToken(firebaseToken)
-      console.log("Token FCM :", firebaseToken)
-
-      // 4️⃣ Listener foreground
-      onMessage(messaging, (payload) => {
-        console.log("Message reçu :", payload)
-        if (payload.notification) {
-          new Notification(payload.notification.title ?? "Notification", {
-            body: payload.notification.body,
-          })
-        }
-      })
-
-    } catch (err) {
-      console.error("Erreur notifications :", err)
+    // 1️⃣ Supprimer subscription existante si elle existe
+    const existingSub = await registration.pushManager.getSubscription();
+    if (existingSub) {
+      await existingSub.unsubscribe();
+      console.log("Ancienne subscription supprimée");
     }
-  }
 
-  const sendNotification = async () => {
-    if (!token) return alert("Token non disponible")
+    // 2️⃣ Créer nouvelle subscription
+    const newSub = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_KEY!)
+    });
 
+    setSubscription(newSub);
+
+    // 3️⃣ Envoyer au backend
     const res = await fetch("/api/notification", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token,
-        title: "🔥 Test depuis iPhone",
-        body: "Notifications fonctionnent !",
-      }),
-    })
-    const data = await res.json()
-    console.log("Réponse backend :", data)
-  }
+      body: JSON.stringify({ subscription: newSub })
+    });
+    if (!res.ok) return alert("Erreur lors de l'enregistrement de la subscription");
+    alert("Notifications activées !");
+  };
 
   return (
     <div>
       <p>Permission : {permission}</p>
-      <p>Token : {token ? "Reçu ✅" : "Non reçu ❌"}</p>
-
-      {!token && (
-        <button onClick={askPermissionAndGetToken}>
-          Activer notifications
-        </button>
-      )}
-
-      {token && (
-        <button onClick={sendNotification}>
-          Envoyer une notification test
-        </button>
-      )}
+      <button onClick={askPermission}>
+        Activer notifications iPhone
+      </button>
     </div>
   )
+}
+
+// Utilitaire pour convertir la clé VAPID
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/")
+  const rawData = atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i)
+  return outputArray
 }

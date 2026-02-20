@@ -1,31 +1,23 @@
 import { NextResponse } from "next/server"
-import admin from "firebase-admin"
+import webPush from "web-push"
 
-if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT as string
-  )
-
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  })
-}
+webPush.setVapidDetails(
+  "mailto:tonemail@exemple.com",
+  process.env.NEXT_PUBLIC_VAPID_KEY as string,
+  process.env.VAPID_PRIVATE_KEY as string
+)
 
 export async function POST(req: Request) {
-    const { token, title, body } = await req.json()
-
-    try {
-        await admin.messaging().send({
-            token,
-            notification: {
-                title: title || "Nouvelle notification 🚀",
-                body: body || "Quelqu'un a déclenché un POST",
-            },
-        })
-
-        return NextResponse.json({ success: true })
-    } catch (error) {
-        console.error(error)
-        return NextResponse.json({ error: "Erreur envoi" }, { status: 500 })
-    }
+  const body = await req.json()
+  try {
+    await webPush.sendNotification(body.subscription, JSON.stringify({
+      title: body.title || "Nouvelle notification",
+      body: body.body || "Message push iPhone",
+      url: body.url || "/"
+    }))
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    return NextResponse.json({ error: "Erreur envoi" }, { status: 500 })
+  }
 }
