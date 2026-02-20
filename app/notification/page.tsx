@@ -1,141 +1,90 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { getToken, onMessage } from "firebase/messaging"
 import { getFirebaseMessaging } from "@/lib/firebase-client"
 
 export default function NotificationComponent() {
   const [token, setToken] = useState<string | null>(null)
   const [permission, setPermission] = useState<NotificationPermission | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [showPopup, setShowPopup] = useState(false)
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const messaging = await getFirebaseMessaging()
-        if (!messaging) {
-          console.log("Messaging non supporté")
-          return
-        }
-
-        const permissionResult = await Notification.requestPermission()
-        setPermission(permissionResult)
-
-        if (permissionResult !== "granted") {
-          console.log("Permission refusée")
-          return
-        }
-
-        const currentToken = await getToken(messaging, {
-          vapidKey: process.env.NEXT_PUBLIC_VAPID_KEY,
-        })
-
-        if (!currentToken) {
-          console.log("Aucun token reçu")
-          return
-        }
-
-        console.log("Token :", currentToken)
-        setToken(currentToken)
-
-        onMessage(messaging, (payload) => {
-          console.log("Message reçu (foreground) :", payload)
-
-          if (payload.notification) {
-            new Notification(payload.notification.title ?? "Notification", {
-              body: payload.notification.body,
-            })
-          }
-        })
-
-      } catch (error) {
-        console.error("Erreur FCM:", error)
-      }
-    }
-
-    init()
-  }, [])
-
-  const sendNotification = async () => {
-    if (!token) return
-
+  const askPermissionAndGetToken = async () => {
     try {
-      setLoading(true)
+      const messaging = await getFirebaseMessaging()
+      if (!messaging) return alert("Messaging non supporté")
 
-      const res = await fetch("/api/notification", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          token,
-          title: "🔥 Test depuis le frontend",
-          body: "La notification fonctionne parfaitement !",
-        }),
+      // 1️⃣ Demande permission
+      const result = await Notification.requestPermission()
+      setPermission(result)
+      if (result !== "granted") return alert("Notifications refusées")
+
+      // 2️⃣ Enregistre SW si pas fait
+      let registration = await navigator.serviceWorker.getRegistration("/")
+      if (!registration) {
+        registration = await navigator.serviceWorker.register(
+          "/firebase-messaging-sw.js",
+          { scope: "/" }
+        )
+      }
+
+      await navigator.serviceWorker.ready
+
+      // 3️⃣ Récupère token FCM
+      const firebaseToken = await getToken(messaging, {
+        vapidKey: process.env.NEXT_PUBLIC_VAPID_KEY,
+        serviceWorkerRegistration: registration,
       })
 
-      const data = await res.json()
-      console.log("Réponse backend :", data)
+      if (!firebaseToken) return alert("Impossible de récupérer le token")
+      setToken(firebaseToken)
+      console.log("Token FCM :", firebaseToken)
 
-    } catch (error) {
-      console.error("Erreur envoi :", error)
-    } finally {
-      setLoading(false)
+      // 4️⃣ Listener foreground
+      onMessage(messaging, (payload) => {
+        console.log("Message reçu :", payload)
+        if (payload.notification) {
+          new Notification(payload.notification.title ?? "Notification", {
+            body: payload.notification.body,
+          })
+        }
+      })
+
+    } catch (err) {
+      console.error("Erreur notifications :", err)
     }
   }
 
-  const askPermission = async () => {
-    const messaging = await getFirebaseMessaging()
-    if (!messaging) return
+  const sendNotification = async () => {
+    if (!token) return alert("Token non disponible")
 
-    const permission = await Notification.requestPermission()
-    setPermission(permission)
-
-    if (permission !== "granted") return
-
-    const currentToken = await getToken(messaging, {
-      vapidKey: process.env.NEXT_PUBLIC_VAPID_KEY,
+    const res = await fetch("/api/notification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        title: "🔥 Test depuis iPhone",
+        body: "Notifications fonctionnent !",
+      }),
     })
-
-    setToken(currentToken)
+    const data = await res.json()
+    console.log("Réponse backend :", data)
   }
 
   return (
     <div>
-      <p>Notifications activées</p>
       <p>Permission : {permission}</p>
       <p>Token : {token ? "Reçu ✅" : "Non reçu ❌"}</p>
 
-      <button
-        onClick={sendNotification}
-        disabled={!token || loading}
-        style={{
-          marginTop: "10px",
-          padding: "8px 16px",
-          cursor: "pointer"
-        }}
-      >
-        {loading ? "Envoi..." : "Envoyer une notification test"}
-      </button>
-      {showPopup && (
-        <div style={{
-          position: "fixed",
-          bottom: 20,
-          right: 20,
-          background: "#111",
-          color: "white",
-          padding: 20,
-          borderRadius: 8
-        }}>
-          <p>🔔 Active les notifications </p>
-          <button className="cursor-pointer"
-            onClick={askPermission}
-            style={{ marginTop: 10 }}
-          >
-            Activer
-          </button>
-        </div>
+      {!token && (
+        <button onClick={askPermissionAndGetToken}>
+          Activer notifications
+        </button>
+      )}
+
+      {token && (
+        <button onClick={sendNotification}>
+          Envoyer une notification test
+        </button>
       )}
     </div>
   )
