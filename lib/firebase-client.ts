@@ -6,12 +6,12 @@ import { getMessaging, isSupported } from "firebase/messaging"
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAQoHQsjtLO3uuhcBVdA-UbA4t0qhq8mSw",
-  authDomain: "nextteams-e9a45.firebaseapp.com",
-  projectId: "nextteams-e9a45",
-  storageBucket: "nextteams-e9a45.firebasestorage.app",
-  messagingSenderId: "822130706738",
-  appId: "1:822130706738:web:2e132c4c6b08d2c7f0ef2b"
+  apiKey: process.env.NEXT_PUBLIC_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_APP_ID
 };
 
 // Initialize Firebase
